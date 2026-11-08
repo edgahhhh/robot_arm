@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Devcontainers
+.devcontainer/
+
+# vscode workspace settings
+.vscode/
