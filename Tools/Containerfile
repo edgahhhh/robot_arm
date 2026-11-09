@@ -1,0 +1,93 @@
+FROM ros:jazzy as base
+
+# variable that will bypass all interactive-nes, we're still passing -y to the apt
+# commands, but this handles anything we will miss and make build/rebuilding images easier
+ENV DEBIAN_FRONTEND=noninteractive
+
+# some basic tools needed to get by in the ubuntu set up
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+   curl \
+   ca-certificates \
+   wget \
+   iputils-ping \
+   gnupg2 \
+   lsb-release \
+   sudo \
+   git \
+   build-essential \
+   python3-pip \
+   python3-colcon-common-extensions \
+   python3-rosdep \
+   nano \
+   vim \
+   bash-completion \
+   python3-argcomplete
+
+### ---- install ros packages
+# 1. Gazebo
+RUN apt-get install -y --no-install-recommends \
+   ros-${ROS_DISTRO}-ros-gz \
+   ros-${ROS_DISTRO}-ros-gz-sim
+
+# 2. Plotjuggler
+RUN apt-get update && apt-get install -y --no-install-recommends \
+   ros-${ROS_DISTRO}-plotjuggler-ros
+
+# 3. Fox Glove
+# install the foxglove bridge in ros so we can visualize data there
+RUN apt-get update && apt-get install -y --no-install-recommends \
+   ros-${ROS_DISTRO}-foxglove-bridge
+
+## set up graphics environment
+RUN apt-get update && apt-get install -y --no-install-recommends\
+   mesa-utils \
+   libgl1-mesa-dri \
+   libglx-mesa0 \
+   libegl1
+
+### ----- base python setup
+USER root
+
+# 1. allow to install python packages globally
+# the image serves as the environment so this is safe
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+# this actually isnt needed since we'll be using a venv in uv but just in case i fall back because rclpy can be weird when it come to venvs
+
+# 2. install uv system wide, https://docs.astral.sh/uv/guides/integration/docker/#installing-uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+ENV UV_PYTHON_PREFERENCE=only-system
+
+# 3. set up the virtual environment
+# colcon build will love it if we set the virtual_env variable
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN mkdir -p ${VIRTUAL_ENV} \
+   && chown ubuntu:ubuntu ${VIRTUAL_ENV}
+
+# create the venv as the development user
+USER ubuntu
+RUN uv venv --system-site-packages --python /usr/bin/python3 /opt/venv
+USER root
+
+# 4. install initial requirements and contraints
+# TODO
+
+### ------ user set up for development
+# 1. set up graphics
+# NOTE: only needed if not using net=host in podman
+# this is a little cheesey, but allows us to not have to use a container with privelages
+RUN groupadd -g 987 rendergroup 2>/dev/null || true
+RUN usermod -aG rendergroup,video ubuntu
+
+# 2. setup workspace
+# create the workspace location
+RUN mkdir -p /workspace && chown -R ubuntu:ubuntu /workspace
+
+# 3. give the ubuntu user sudo with no password
+RUN echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu \
+   && chmod 0440 /etc/sudoers.d/ubuntu
+
+USER ubuntu
+
+WORKDIR /workspace
